@@ -19,7 +19,12 @@ constexpr int TOP_CHROME_HEIGHT = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT;
 
 BrowserWindow::BrowserWindow() = default;
 
-BrowserWindow::~BrowserWindow() = default;
+BrowserWindow::~BrowserWindow() {
+    if (hAddressEditBrush_) {
+        DeleteObject(hAddressEditBrush_);
+        hAddressEditBrush_ = nullptr;
+    }
+}
 
 bool BrowserWindow::Create() {
     WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
@@ -70,9 +75,9 @@ void BrowserWindow::OnCreate() {
         if (tab) tab->StopFind();
     });
 
-    // Create Address Bar Edit Control
-    hAddressEdit_ = CreateWindowExW(0, L"EDIT", L"",
-                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
+    // Create Address Bar Edit Control with WS_CLIPSIBLINGS so it sits cleanly on top
+    hAddressEdit_ = CreateWindowExW(0, L"EDIT", URL_NEWTAB,
+                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP | WS_CLIPSIBLINGS,
                                     0, 0, 0, 0,
                                     hWnd_, (HMENU)201, GetModuleHandleW(nullptr), nullptr);
 
@@ -80,6 +85,7 @@ void BrowserWindow::OnCreate() {
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                               CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable Text");
     SendMessageW(hAddressEdit_, WM_SETFONT, (WPARAM)hFont, TRUE);
+    SendMessageW(hAddressEdit_, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(4, 4));
     SetWindowSubclass(hAddressEdit_, AddressBarSubclassProc, 2, (DWORD_PTR)this);
 
     // Call UpdateLayout first so layout rects are initialized
@@ -137,10 +143,11 @@ void BrowserWindow::UpdateLayout() {
     rcAddressBar_ = { 122, yMid, w - 200, yMid + 32 };
 
     if (hAddressEdit_) {
-        SetWindowPos(hAddressEdit_, nullptr,
-                     rcAddressBar_.left + 14, rcAddressBar_.top + 7,
-                     (rcAddressBar_.right - rcAddressBar_.left) - 28, 18,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+        // Place hAddressEdit_ on top of Z-order with comfortable 22px height inside the 32px pill
+        SetWindowPos(hAddressEdit_, HWND_TOP,
+                     rcAddressBar_.left + 16, rcAddressBar_.top + 5,
+                     (rcAddressBar_.right - rcAddressBar_.left) - 32, 22,
+                     SWP_SHOWWINDOW);
     }
 
     if (tabManager_) {
@@ -156,8 +163,11 @@ void BrowserWindow::UpdateLayout() {
 
 void BrowserWindow::UpdateControlsState() {
     auto activeTab = tabManager_ ? tabManager_->GetActiveTab() : nullptr;
-    if (activeTab && hAddressEdit_ && !addressBarFocused_) {
+    bool isEditFocused = (addressBarFocused_ || (hAddressEdit_ && GetFocus() == hAddressEdit_));
+    if (activeTab && hAddressEdit_ && !isEditFocused) {
         SetWindowTextW(hAddressEdit_, activeTab->GetUrl().c_str());
+    }
+    if (activeTab) {
         std::wstring windowTitle = activeTab->GetTitle().empty() ? APP_NAME : (activeTab->GetTitle() + L" - " + APP_NAME);
         SetWindowTextW(hWnd_, windowTitle.c_str());
     }
@@ -296,8 +306,9 @@ void BrowserWindow::OnPaint(HDC hdc) {
     DrawTextW(memDC, reloadText.c_str(), -1, &rcBtnReload_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // Address Bar Pill (background & border)
+    bool isEditFocused = (addressBarFocused_ || (hAddressEdit_ && GetFocus() == hAddressEdit_));
     HBRUSH addrBrush = CreateSolidBrush(colors.background);
-    HPEN addrPen = CreatePen(PS_SOLID, 1, addressBarFocused_ ? colors.accent : colors.border);
+    HPEN addrPen = CreatePen(PS_SOLID, 1, isEditFocused ? colors.accent : colors.border);
     HPEN oldAddrPen = (HPEN)SelectObject(memDC, addrPen);
     HBRUSH oldAddrBrush = (HBRUSH)SelectObject(memDC, addrBrush);
 
@@ -363,11 +374,13 @@ void BrowserWindow::OnPaint(HDC hdc) {
 void BrowserWindow::OnLButtonDown(int x, int y) {
     POINT pt = { x, y };
 
-    // Check Address Bar
+    // Check Address Bar click (pill region)
     if (PtInRect(&rcAddressBar_, pt)) {
         if (hAddressEdit_) {
             SetFocus(hAddressEdit_);
             SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1);
+            InvalidateRect(hWnd_, &rcAddressBar_, FALSE);
+            InvalidateRect(hAddressEdit_, nullptr, TRUE);
         }
         return;
     }
@@ -556,24 +569,9 @@ void BrowserWindow::NavigateAddressBar() {
     std::wstring input = buf;
     if (input.empty()) return;
 
-    // Smart Navigation Interpreter
-    std::wstring targetUrl;
-    if (input.rfind(L"lite://", 0) == 0 ||
-        input.rfind(L"http://", 0) == 0 ||
-        input.rfind(L"https://", 0) == 0 ||
-        input.rfind(L"file://", 0) == 0 ||
-        input.rfind(L"about:", 0) == 0) {
-        targetUrl = input;
-    } else if (input.find(L'.') != std::wstring::npos && input.find(L' ') == std::wstring::npos) {
-        targetUrl = L"https://" + input;
-    } else {
-        // Fallback to configured Search Engine
-        targetUrl = L"https://www.google.com/search?q=" + input;
-    }
-
     auto activeTab = tabManager_ ? tabManager_->GetActiveTab() : nullptr;
     if (activeTab) {
-        activeTab->Navigate(targetUrl);
+        activeTab->Navigate(input);
         activeTab->SetFocus();
     }
 }
@@ -640,6 +638,8 @@ bool BrowserWindow::HandleShortcut(WPARAM key, bool ctrl, bool shift, bool alt) 
                 if (hAddressEdit_) {
                     SetFocus(hAddressEdit_);
                     SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1);
+                    InvalidateRect(hWnd_, &rcAddressBar_, FALSE);
+                    InvalidateRect(hAddressEdit_, nullptr, TRUE);
                 }
                 return true;
             case 'H': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_HISTORY); return true;
@@ -662,8 +662,24 @@ bool BrowserWindow::HandleShortcut(WPARAM key, bool ctrl, bool shift, bool alt) 
         }
     } else if (alt && !ctrl && !shift) {
         switch (key) {
+            case 'D':
+                if (hAddressEdit_) {
+                    SetFocus(hAddressEdit_);
+                    SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1);
+                    InvalidateRect(hWnd_, &rcAddressBar_, FALSE);
+                    InvalidateRect(hAddressEdit_, nullptr, TRUE);
+                }
+                return true;
             case VK_LEFT: if (auto t = tabManager_->GetActiveTab()) t->GoBack(); return true;
             case VK_RIGHT: if (auto t = tabManager_->GetActiveTab()) t->GoForward(); return true;
+        }
+    } else if (key == VK_F6) {
+        if (hAddressEdit_) {
+            SetFocus(hAddressEdit_);
+            SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1);
+            InvalidateRect(hWnd_, &rcAddressBar_, FALSE);
+            InvalidateRect(hAddressEdit_, nullptr, TRUE);
+            return true;
         }
     } else if (key == VK_F12) {
         if (auto t = tabManager_->GetActiveTab()) {
@@ -679,14 +695,20 @@ LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
     if (msg == WM_NCCREATE) {
         auto cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
         self = reinterpret_cast<BrowserWindow*>(cs->lpCreateParams);
-        SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        if (self) {
+            self->hWnd_ = hWnd;
+            SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        }
     } else {
         self = reinterpret_cast<BrowserWindow*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
     }
 
     switch (msg) {
         case WM_CREATE:
-            if (self) self->OnCreate();
+            if (self) {
+                self->hWnd_ = hWnd;
+                self->OnCreate();
+            }
             return 0;
         case WM_SIZE:
             if (self) self->OnSize(LOWORD(lParam), HIWORD(lParam));
@@ -699,11 +721,22 @@ LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
             return 0;
         }
         case WM_SETFOCUS: {
-            if (self && self->tabManager_) {
-                auto activeTab = self->tabManager_->GetActiveTab();
-                if (activeTab) {
-                    activeTab->SetFocus();
+            if (self) {
+                // If address bar is being focused or already has focus, don't steal focus to web view
+                if (self->addressBarFocused_ || (self->hAddressEdit_ && GetFocus() == self->hAddressEdit_)) {
+                    SetFocus(self->hAddressEdit_);
+                    SendMessageW(self->hAddressEdit_, EM_SETSEL, 0, -1);
                     return 0;
+                }
+                if (self->findBar_ && self->findBar_->IsVisible()) {
+                    return 0;
+                }
+                if (self->tabManager_) {
+                    auto activeTab = self->tabManager_->GetActiveTab();
+                    if (activeTab) {
+                        activeTab->SetFocus();
+                        return 0;
+                    }
                 }
             }
             break;
@@ -715,10 +748,12 @@ LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
                 ThemeColors colors = ThemeManager::GetInstance().GetColors();
                 SetTextColor(hdcEdit, colors.text);
                 SetBkColor(hdcEdit, colors.background);
-                static HBRUSH hEditBgBrush = nullptr;
-                if (hEditBgBrush) DeleteObject(hEditBgBrush);
-                hEditBgBrush = CreateSolidBrush(colors.background);
-                return (LRESULT)hEditBgBrush;
+                if (!self->hAddressEditBrush_ || self->lastBrushColor_ != colors.background) {
+                    if (self->hAddressEditBrush_) DeleteObject(self->hAddressEditBrush_);
+                    self->hAddressEditBrush_ = CreateSolidBrush(colors.background);
+                    self->lastBrushColor_ = colors.background;
+                }
+                return (LRESULT)self->hAddressEditBrush_;
             }
             break;
         }
@@ -758,7 +793,9 @@ LRESULT CALLBACK BrowserWindow::AddressBarSubclassProc(HWND hWnd, UINT msg, WPAR
         case WM_SETFOCUS:
             if (self) {
                 self->addressBarFocused_ = true;
+                SendMessageW(hWnd, EM_SETSEL, 0, -1);
                 InvalidateRect(self->hWnd_, &self->rcAddressBar_, FALSE);
+                InvalidateRect(hWnd, nullptr, TRUE);
             }
             break;
         case WM_KILLFOCUS:
@@ -766,8 +803,31 @@ LRESULT CALLBACK BrowserWindow::AddressBarSubclassProc(HWND hWnd, UINT msg, WPAR
                 self->addressBarFocused_ = false;
                 self->UpdateControlsState();
                 InvalidateRect(self->hWnd_, &self->rcAddressBar_, FALSE);
+                InvalidateRect(hWnd, nullptr, TRUE);
             }
             break;
+        case WM_LBUTTONDOWN:
+            if (self) {
+                // If not already focused, single-click selects the full URL (browser standard)
+                if (GetFocus() != hWnd) {
+                    SetFocus(hWnd);
+                    self->suppressNextMouseUp_ = true;
+                    SendMessageW(hWnd, EM_SETSEL, 0, -1);
+                    return 0; // Prevent default EditProc from clearing selection
+                }
+            }
+            break;
+        case WM_LBUTTONUP:
+            if (self && self->suppressNextMouseUp_) {
+                self->suppressNextMouseUp_ = false;
+                SendMessageW(hWnd, EM_SETSEL, 0, -1);
+                return 0;
+            }
+            break;
+        case WM_LBUTTONDBLCLK:
+            // Double-click always selects entire URL
+            SendMessageW(hWnd, EM_SETSEL, 0, -1);
+            return 0;
         case WM_KEYDOWN:
             if (wParam == VK_RETURN) {
                 if (self) {
@@ -779,6 +839,14 @@ LRESULT CALLBACK BrowserWindow::AddressBarSubclassProc(HWND hWnd, UINT msg, WPAR
                     self->UpdateControlsState();
                     if (auto tab = self->tabManager_->GetActiveTab()) tab->SetFocus();
                 }
+                return 0;
+            } else if (wParam == VK_TAB) {
+                if (self) {
+                    if (auto tab = self->tabManager_->GetActiveTab()) tab->SetFocus();
+                }
+                return 0;
+            } else if (wParam == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                SendMessageW(hWnd, EM_SETSEL, 0, -1);
                 return 0;
             }
             break;

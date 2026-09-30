@@ -78,6 +78,9 @@ private:
     int dragTabIndex_ = -1;
     int hoveredTabIndex_ = -1;
     bool addressBarFocused_ = false;
+    bool suppressNextMouseUp_ = false;
+    HBRUSH hAddressEditBrush_ = nullptr;
+    COLORREF lastBrushColor_ = 0;
 };
 
 } // namespace LiteBrowser
