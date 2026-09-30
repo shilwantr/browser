@@ -1,0 +1,20 @@
+# Build directories
+build/
+bin/
+obj/
+dist/
+
+# Tooling cache
+.tools/
+.cache/
+
+# Local database and temporary cache
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Visual Studio / IDE files
+.vs/
+*.user
+*.suo
