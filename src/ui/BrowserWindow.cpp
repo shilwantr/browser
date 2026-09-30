@@ -6,13 +6,14 @@
 #include <commctrl.h>
 #include <windowsx.h>
 #include <sstream>
+#include <algorithm>
 
 namespace LiteBrowser {
 
 namespace {
 const wchar_t* MAIN_WINDOW_CLASS = L"LiteBrowser_MainWindow";
-constexpr int TAB_BAR_HEIGHT = 34;
-constexpr int TOOLBAR_HEIGHT = 40;
+constexpr int TAB_BAR_HEIGHT = 38;
+constexpr int TOOLBAR_HEIGHT = 46;
 constexpr int TOP_CHROME_HEIGHT = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT;
 }
 
@@ -31,9 +32,16 @@ bool BrowserWindow::Create() {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     RegisterClassExW(&wc);
 
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int winW = 1320;
+    int winH = 860;
+    int winX = std::max<int>(0, (screenW - winW) / 2);
+    int winY = std::max<int>(0, (screenH - winH) / 2);
+
     hWnd_ = CreateWindowExW(0, MAIN_WINDOW_CLASS, APP_NAME,
                             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-                            CW_USEDEFAULT, CW_USEDEFAULT, 1200, 800,
+                            winX, winY, winW, winH,
                             nullptr, nullptr, GetModuleHandleW(nullptr), this);
 
     return hWnd_ != nullptr;
@@ -68,11 +76,14 @@ void BrowserWindow::OnCreate() {
                                     0, 0, 0, 0,
                                     hWnd_, (HMENU)201, GetModuleHandleW(nullptr), nullptr);
 
-    HFONT hFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                              CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+                              CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable Text");
     SendMessageW(hAddressEdit_, WM_SETFONT, (WPARAM)hFont, TRUE);
     SetWindowSubclass(hAddressEdit_, AddressBarSubclassProc, 2, (DWORD_PTR)this);
+
+    // Call UpdateLayout first so layout rects are initialized
+    UpdateLayout();
 
     // Initialize WebView2 environments and open initial tab
     tabManager_->SetTabChangeCallback([this]() {
@@ -97,7 +108,7 @@ void BrowserWindow::OnDestroy() {
     PostQuitMessage(0);
 }
 
-void BrowserWindow::OnSize(int width, int height) {
+void BrowserWindow::OnSize(int, int) {
     UpdateLayout();
 }
 
@@ -112,23 +123,23 @@ void BrowserWindow::UpdateLayout() {
     rcToolbar_ = { 0, TAB_BAR_HEIGHT, w, TOP_CHROME_HEIGHT };
     rcContent_ = { 0, TOP_CHROME_HEIGHT, w, h };
 
-    // Toolbar Buttons Layout
-    int yMid = TAB_BAR_HEIGHT + (TOOLBAR_HEIGHT - 28) / 2;
-    rcBtnBack_ = { 10, yMid, 38, yMid + 28 };
-    rcBtnForward_ = { 42, yMid, 70, yMid + 28 };
-    rcBtnReload_ = { 74, yMid, 102, yMid + 28 };
+    // Toolbar Buttons Layout (centered vertically in TOOLBAR_HEIGHT=46, button height=32)
+    int yMid = TAB_BAR_HEIGHT + (TOOLBAR_HEIGHT - 32) / 2;
+    rcBtnBack_ = { 10, yMid, 42, yMid + 32 };
+    rcBtnForward_ = { 46, yMid, 78, yMid + 32 };
+    rcBtnReload_ = { 82, yMid, 114, yMid + 32 };
 
-    rcBtnMenu_ = { w - 38, yMid, w - 10, yMid + 28 };
-    rcBtnBookmark_ = { w - 70, yMid, w - 42, yMid + 28 };
-    rcBtnReader_ = { w - 102, yMid, w - 74, yMid + 28 };
-    rcBtnShield_ = { w - 165, yMid, w - 106, yMid + 28 };
+    rcBtnMenu_ = { w - 42, yMid, w - 10, yMid + 32 };
+    rcBtnBookmark_ = { w - 78, yMid, w - 46, yMid + 32 };
+    rcBtnReader_ = { w - 114, yMid, w - 82, yMid + 32 };
+    rcBtnShield_ = { w - 192, yMid, w - 118, yMid + 32 };
 
-    rcAddressBar_ = { 110, yMid, w - 175, yMid + 28 };
+    rcAddressBar_ = { 122, yMid, w - 200, yMid + 32 };
 
     if (hAddressEdit_) {
         SetWindowPos(hAddressEdit_, nullptr,
-                     rcAddressBar_.left + 8, rcAddressBar_.top + 5,
-                     (rcAddressBar_.right - rcAddressBar_.left) - 16, 18,
+                     rcAddressBar_.left + 14, rcAddressBar_.top + 7,
+                     (rcAddressBar_.right - rcAddressBar_.left) - 28, 18,
                      SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
@@ -168,60 +179,91 @@ void BrowserWindow::OnPaint(HDC hdc) {
 
     SetBkMode(memDC, TRANSPARENT);
 
-    HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                              CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+                              CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable Text");
     HFONT hOldFont = (HFONT)SelectObject(memDC, hFont);
 
-    // 1. Draw Tab Bar
+    // 1. Draw Tab Bar Background
+    HBRUSH tabBarBgBrush = CreateSolidBrush(colors.background);
+    FillRect(memDC, &rcTabBar_, tabBarBgBrush);
+    DeleteObject(tabBarBgBrush);
+
     tabRects_.clear();
     tabCloseRects_.clear();
     int tabCount = tabManager_ ? tabManager_->GetTabCount() : 0;
     int activeIdx = tabManager_ ? tabManager_->GetActiveIndex() : -1;
 
-    int curX = 8;
-    int tabWidth = (tabCount > 0) ? std::min<int>(180, (clientRc.right - 60) / tabCount) : 180;
-    if (tabWidth < 80) tabWidth = 80;
+    int curX = 12;
+    int maxTabW = 200;
+    int availW = clientRc.right - 60 - curX;
+    int tabWidth = (tabCount > 0) ? std::min<int>(maxTabW, availW / tabCount) : maxTabW;
+    if (tabWidth < 90) tabWidth = 90;
 
     for (int i = 0; i < tabCount; ++i) {
         auto tab = tabManager_->GetTab(i);
         if (!tab) continue;
 
-        RECT rcTab = { curX, 4, curX + tabWidth, TAB_BAR_HEIGHT };
+        bool isActive = (i == activeIdx);
+        RECT rcTab = { curX, 6, curX + tabWidth, TAB_BAR_HEIGHT };
         tabRects_.push_back(rcTab);
 
-        bool isActive = (i == activeIdx);
-        COLORREF tabBg = isActive ? colors.surface : colors.background;
-        HBRUSH tBrush = CreateSolidBrush(tabBg);
-        HPEN tPen = CreatePen(PS_SOLID, 1, isActive ? colors.border : colors.background);
-        HPEN oldP = (HPEN)SelectObject(memDC, tPen);
-        HBRUSH oldB = (HBRUSH)SelectObject(memDC, tBrush);
+        if (isActive) {
+            // Active tab seamlessly connects to toolbar
+            HBRUSH tBrush = CreateSolidBrush(colors.surface);
+            HPEN tPen = CreatePen(PS_SOLID, 1, colors.border);
+            HPEN oldP = (HPEN)SelectObject(memDC, tPen);
+            HBRUSH oldB = (HBRUSH)SelectObject(memDC, tBrush);
 
-        RoundRect(memDC, rcTab.left, rcTab.top, rcTab.right, rcTab.bottom + 4, 6, 6);
+            // Rounded top corners
+            RoundRect(memDC, rcTab.left, rcTab.top, rcTab.right, rcTab.bottom + 8, 8, 8);
 
-        SelectObject(memDC, oldP);
-        SelectObject(memDC, oldB);
-        DeleteObject(tPen);
-        DeleteObject(tBrush);
+            // Cover bottom line to fuse with toolbar
+            RECT rcBottomCover = { rcTab.left + 1, rcTab.bottom - 1, rcTab.right - 1, rcTab.bottom + 1 };
+            FillRect(memDC, &rcBottomCover, tBrush);
+
+            SelectObject(memDC, oldP);
+            SelectObject(memDC, oldB);
+            DeleteObject(tPen);
+            DeleteObject(tBrush);
+        } else {
+            // Inactive tab: subtle card with rounded top
+            HBRUSH inactBrush = CreateSolidBrush(colors.background);
+            HPEN inactPen = CreatePen(PS_SOLID, 1, colors.surfaceHover);
+            HPEN oldP = (HPEN)SelectObject(memDC, inactPen);
+            HBRUSH oldB = (HBRUSH)SelectObject(memDC, inactBrush);
+
+            RoundRect(memDC, rcTab.left, rcTab.top + 2, rcTab.right, rcTab.bottom + 2, 6, 6);
+
+            SelectObject(memDC, oldP);
+            SelectObject(memDC, oldB);
+            DeleteObject(inactPen);
+            DeleteObject(inactBrush);
+        }
 
         // Tab Title
         SetTextColor(memDC, isActive ? colors.text : colors.textSecondary);
-        RECT rcTitle = { rcTab.left + 10, rcTab.top + 7, rcTab.right - 24, rcTab.bottom };
+        RECT rcTitle = { rcTab.left + 12, rcTab.top + (isActive ? 4 : 5), rcTab.right - 26, rcTab.bottom - 2 };
         std::wstring title = tab->GetTitle().empty() ? L"New Tab" : tab->GetTitle();
-        if (tab->IsPrivate()) title = L"[Private] " + title;
+        if (tab->IsPrivate()) title = L"🔒 " + title;
         DrawTextW(memDC, title.c_str(), -1, &rcTitle, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_VCENTER);
 
-        // Close button '✕'
-        RECT rcClose = { rcTab.right - 22, rcTab.top + 7, rcTab.right - 6, rcTab.bottom - 7 };
+        // Tab Close Button '✕'
+        RECT rcClose = { rcTab.right - 24, rcTab.top + 6, rcTab.right - 8, rcTab.bottom - 6 };
         tabCloseRects_.push_back(rcClose);
-        DrawTextW(memDC, L"✕", -1, &rcClose, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SetTextColor(memDC, colors.textSecondary);
+        DrawTextW(memDC, L"×", -1, &rcClose, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-        curX += tabWidth + 2;
+        curX += tabWidth + 4;
     }
 
     // New Tab button '+'
-    rcBtnNewTab_ = { curX + 2, 6, curX + 28, TAB_BAR_HEIGHT - 4 };
-    SetTextColor(memDC, colors.textSecondary);
+    rcBtnNewTab_ = { curX + 2, 7, curX + 32, TAB_BAR_HEIGHT - 3 };
+    HBRUSH ntBrush = CreateSolidBrush(colors.surfaceHover);
+    SelectObject(memDC, ntBrush);
+    RoundRect(memDC, rcBtnNewTab_.left, rcBtnNewTab_.top, rcBtnNewTab_.right, rcBtnNewTab_.bottom, 6, 6);
+    DeleteObject(ntBrush);
+    SetTextColor(memDC, colors.text);
     DrawTextW(memDC, L"+", -1, &rcBtnNewTab_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // 2. Draw Toolbar
@@ -237,37 +279,68 @@ void BrowserWindow::OnPaint(HDC hdc) {
 
     // Nav Buttons
     auto activeTab = tabManager_ ? tabManager_->GetActiveTab() : nullptr;
-    SetTextColor(memDC, (activeTab && activeTab->CanGoBack()) ? colors.text : colors.textSecondary);
+
+    // Back button
+    bool canBack = activeTab && activeTab->CanGoBack();
+    SetTextColor(memDC, canBack ? colors.text : colors.textSecondary);
     DrawTextW(memDC, L"←", -1, &rcBtnBack_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    SetTextColor(memDC, (activeTab && activeTab->CanGoForward()) ? colors.text : colors.textSecondary);
+    // Forward button
+    bool canForward = activeTab && activeTab->CanGoForward();
+    SetTextColor(memDC, canForward ? colors.text : colors.textSecondary);
     DrawTextW(memDC, L"→", -1, &rcBtnForward_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
+    // Reload / Stop button
     SetTextColor(memDC, colors.text);
     std::wstring reloadText = (activeTab && activeTab->IsLoading()) ? L"✕" : L"↻";
     DrawTextW(memDC, reloadText.c_str(), -1, &rcBtnReload_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    // Address Bar background & border
+    // Address Bar Pill (background & border)
     HBRUSH addrBrush = CreateSolidBrush(colors.background);
-    SelectObject(memDC, addrBrush);
-    RoundRect(memDC, rcAddressBar_.left, rcAddressBar_.top, rcAddressBar_.right, rcAddressBar_.bottom, 6, 6);
+    HPEN addrPen = CreatePen(PS_SOLID, 1, addressBarFocused_ ? colors.accent : colors.border);
+    HPEN oldAddrPen = (HPEN)SelectObject(memDC, addrPen);
+    HBRUSH oldAddrBrush = (HBRUSH)SelectObject(memDC, addrBrush);
+
+    RoundRect(memDC, rcAddressBar_.left, rcAddressBar_.top, rcAddressBar_.right, rcAddressBar_.bottom, 10, 10);
+
+    SelectObject(memDC, oldAddrPen);
+    SelectObject(memDC, oldAddrBrush);
+    DeleteObject(addrPen);
     DeleteObject(addrBrush);
 
     // Privacy Shield Button
     int blockedTotal = activeTab ? (activeTab->GetBlockedAdsCount() + activeTab->GetBlockedTrackersCount()) : 0;
-    std::wstring shieldText = (blockedTotal > 0) ? (L"🛡 " + std::to_wstring(blockedTotal)) : L"🛡";
-    SetTextColor(memDC, (blockedTotal > 0) ? RGB(60, 180, 75) : colors.textSecondary);
-    DrawTextW(memDC, shieldText.c_str(), -1, &rcBtnShield_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    if (blockedTotal > 0) {
+        // Draw pill badge for shield
+        HBRUSH badgeBrush = CreateSolidBrush(RGB(230, 245, 235));
+        HPEN badgePen = CreatePen(PS_SOLID, 1, RGB(46, 170, 75));
+        HPEN oldBPen = (HPEN)SelectObject(memDC, badgePen);
+        HBRUSH oldBBrush = (HBRUSH)SelectObject(memDC, badgeBrush);
 
-    // Reader Mode Button (only visible when available or currently active)
+        RoundRect(memDC, rcBtnShield_.left, rcBtnShield_.top + 2, rcBtnShield_.right, rcBtnShield_.bottom - 2, 6, 6);
+
+        SelectObject(memDC, oldBPen);
+        SelectObject(memDC, oldBBrush);
+        DeleteObject(badgePen);
+        DeleteObject(badgeBrush);
+
+        std::wstring shieldText = L"🛡 " + std::to_wstring(blockedTotal);
+        SetTextColor(memDC, RGB(34, 139, 34));
+        DrawTextW(memDC, shieldText.c_str(), -1, &rcBtnShield_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    } else {
+        SetTextColor(memDC, colors.textSecondary);
+        DrawTextW(memDC, L"🛡", -1, &rcBtnShield_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    // Reader Mode Button (only visible when available or active)
     if (activeTab && (activeTab->IsReaderAvailable() || activeTab->IsInReaderMode())) {
-        SetTextColor(memDC, activeTab->IsInReaderMode() ? RGB(230, 140, 20) : colors.text);
+        SetTextColor(memDC, activeTab->IsInReaderMode() ? RGB(230, 130, 20) : colors.text);
         DrawTextW(memDC, L"📖", -1, &rcBtnReader_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
 
     // Bookmark Button
     bool isBkmk = activeTab && StorageManager::GetInstance().IsBookmarked(activeTab->GetUrl());
-    SetTextColor(memDC, isBkmk ? RGB(235, 180, 30) : colors.textSecondary);
+    SetTextColor(memDC, isBkmk ? RGB(245, 166, 35) : colors.textSecondary);
     DrawTextW(memDC, isBkmk ? L"★" : L"☆", -1, &rcBtnBookmark_, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // Menu Button
@@ -289,6 +362,24 @@ void BrowserWindow::OnPaint(HDC hdc) {
 
 void BrowserWindow::OnLButtonDown(int x, int y) {
     POINT pt = { x, y };
+
+    // Check Address Bar
+    if (PtInRect(&rcAddressBar_, pt)) {
+        if (hAddressEdit_) {
+            SetFocus(hAddressEdit_);
+            SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1);
+        }
+        return;
+    }
+
+    // Check Content Area
+    if (PtInRect(&rcContent_, pt)) {
+        auto activeTab = tabManager_ ? tabManager_->GetActiveTab() : nullptr;
+        if (activeTab) {
+            activeTab->SetFocus();
+        }
+        return;
+    }
 
     // Check Tabs
     int closeIdx = HitTestTabClose(x, y);
@@ -400,7 +491,7 @@ void BrowserWindow::OnMButtonDown(int x, int y) {
     }
 }
 
-void BrowserWindow::OnMouseMove(int x, int y) {
+void BrowserWindow::OnMouseMove(int, int) {
 }
 
 int BrowserWindow::HitTestTab(int x, int y) {
@@ -539,39 +630,48 @@ void BrowserWindow::OnCommand(int id) {
     }
 }
 
-void BrowserWindow::HandleShortcut(WPARAM key, bool ctrl, bool shift, bool alt) {
+bool BrowserWindow::HandleShortcut(WPARAM key, bool ctrl, bool shift, bool alt) {
     if (ctrl && !shift && !alt) {
         switch (key) {
-            case 'T': tabManager_->CreateTab(URL_NEWTAB, false); break;
-            case 'W': tabManager_->CloseTab(tabManager_->GetActiveIndex()); break;
-            case 'R': if (auto t = tabManager_->GetActiveTab()) t->Reload(); break;
-            case 'L': SetFocus(hAddressEdit_); SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1); break;
-            case 'H': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_HISTORY); break;
-            case 'J': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_DOWNLOADS); break;
-            case 'B': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_BOOKMARKS); break;
-            case 'F': if (findBar_) findBar_->Show(); break;
+            case 'T': tabManager_->CreateTab(URL_NEWTAB, false); return true;
+            case 'W': tabManager_->CloseTab(tabManager_->GetActiveIndex()); return true;
+            case 'R': if (auto t = tabManager_->GetActiveTab()) t->Reload(); return true;
+            case 'L':
+                if (hAddressEdit_) {
+                    SetFocus(hAddressEdit_);
+                    SendMessageW(hAddressEdit_, EM_SETSEL, 0, -1);
+                }
+                return true;
+            case 'H': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_HISTORY); return true;
+            case 'J': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_DOWNLOADS); return true;
+            case 'B': if (auto t = tabManager_->GetActiveTab()) t->Navigate(URL_BOOKMARKS); return true;
+            case 'F': if (findBar_) findBar_->Show(); return true;
             case VK_OEM_PLUS:
-            case VK_ADD: if (auto t = tabManager_->GetActiveTab()) t->ZoomIn(); break;
+            case VK_ADD: if (auto t = tabManager_->GetActiveTab()) t->ZoomIn(); return true;
             case VK_OEM_MINUS:
-            case VK_SUBTRACT: if (auto t = tabManager_->GetActiveTab()) t->ZoomOut(); break;
-            case '0': if (auto t = tabManager_->GetActiveTab()) t->ResetZoom(); break;
-            case VK_TAB: tabManager_->NextTab(); break;
+            case VK_SUBTRACT: if (auto t = tabManager_->GetActiveTab()) t->ZoomOut(); return true;
+            case '0': if (auto t = tabManager_->GetActiveTab()) t->ResetZoom(); return true;
+            case VK_TAB: tabManager_->NextTab(); return true;
         }
     } else if (ctrl && shift && !alt) {
         switch (key) {
-            case 'T': tabManager_->ReopenClosedTab(); break;
-            case 'P': tabManager_->CreateTab(URL_NEWTAB, true); break;
-            case 'R': if (auto t = tabManager_->GetActiveTab()) t->Reload(true); break;
-            case VK_TAB: tabManager_->PreviousTab(); break;
+            case 'T': tabManager_->ReopenClosedTab(); return true;
+            case 'P': tabManager_->CreateTab(URL_NEWTAB, true); return true;
+            case 'R': if (auto t = tabManager_->GetActiveTab()) t->Reload(true); return true;
+            case VK_TAB: tabManager_->PreviousTab(); return true;
         }
     } else if (alt && !ctrl && !shift) {
         switch (key) {
-            case VK_LEFT: if (auto t = tabManager_->GetActiveTab()) t->GoBack(); break;
-            case VK_RIGHT: if (auto t = tabManager_->GetActiveTab()) t->GoForward(); break;
+            case VK_LEFT: if (auto t = tabManager_->GetActiveTab()) t->GoBack(); return true;
+            case VK_RIGHT: if (auto t = tabManager_->GetActiveTab()) t->GoForward(); return true;
         }
     } else if (key == VK_F12) {
-        if (auto t = tabManager_->GetActiveTab()) t->OpenDevTools();
+        if (auto t = tabManager_->GetActiveTab()) {
+            t->OpenDevTools();
+            return true;
+        }
     }
+    return false;
 }
 
 LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -598,6 +698,30 @@ LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
             EndPaint(hWnd, &ps);
             return 0;
         }
+        case WM_SETFOCUS: {
+            if (self && self->tabManager_) {
+                auto activeTab = self->tabManager_->GetActiveTab();
+                if (activeTab) {
+                    activeTab->SetFocus();
+                    return 0;
+                }
+            }
+            break;
+        }
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORSTATIC: {
+            if (self && (HWND)lParam == self->hAddressEdit_) {
+                HDC hdcEdit = (HDC)wParam;
+                ThemeColors colors = ThemeManager::GetInstance().GetColors();
+                SetTextColor(hdcEdit, colors.text);
+                SetBkColor(hdcEdit, colors.background);
+                static HBRUSH hEditBgBrush = nullptr;
+                if (hEditBgBrush) DeleteObject(hEditBgBrush);
+                hEditBgBrush = CreateSolidBrush(colors.background);
+                return (LRESULT)hEditBgBrush;
+            }
+            break;
+        }
         case WM_LBUTTONDOWN:
             if (self) self->OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
@@ -615,9 +739,11 @@ LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
                 bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                 bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-                self->HandleShortcut(wParam, ctrl, shift, alt);
+                if (self->HandleShortcut(wParam, ctrl, shift, alt)) {
+                    return 0;
+                }
             }
-            return 0;
+            break;
         }
         case WM_DESTROY:
             if (self) self->OnDestroy();
@@ -630,17 +756,23 @@ LRESULT CALLBACK BrowserWindow::AddressBarSubclassProc(HWND hWnd, UINT msg, WPAR
     auto self = reinterpret_cast<BrowserWindow*>(dwRefData);
     switch (msg) {
         case WM_SETFOCUS:
-            if (self) self->addressBarFocused_ = true;
+            if (self) {
+                self->addressBarFocused_ = true;
+                InvalidateRect(self->hWnd_, &self->rcAddressBar_, FALSE);
+            }
             break;
         case WM_KILLFOCUS:
             if (self) {
                 self->addressBarFocused_ = false;
                 self->UpdateControlsState();
+                InvalidateRect(self->hWnd_, &self->rcAddressBar_, FALSE);
             }
             break;
         case WM_KEYDOWN:
             if (wParam == VK_RETURN) {
-                if (self) self->NavigateAddressBar();
+                if (self) {
+                    self->NavigateAddressBar();
+                }
                 return 0;
             } else if (wParam == VK_ESCAPE) {
                 if (self) {

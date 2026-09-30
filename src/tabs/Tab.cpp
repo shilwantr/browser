@@ -60,6 +60,12 @@ void Tab::AttachWebView(ICoreWebView2Environment* env, std::function<void(bool s
             }
 
             controller_ = controller;
+            controller_->put_IsVisible(TRUE);
+            if (currentBounds_.right > currentBounds_.left && currentBounds_.bottom > currentBounds_.top) {
+                controller_->put_Bounds(currentBounds_);
+            }
+            controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+
             controller_->get_CoreWebView2(webview_.GetAddressOf());
             if (!webview_) {
                 if (onCreated) onCreated(false);
@@ -374,7 +380,23 @@ void Tab::ExitReaderMode() {
     }
 }
 
-void Tab::Navigate(const std::wstring& navUrl) {
+void Tab::Navigate(const std::wstring& input) {
+    if (input.empty()) return;
+
+    std::wstring navUrl = input;
+    if (InternalPages::IsInternalUrl(input)) {
+        navUrl = input;
+    } else if (input.rfind(L"http://", 0) == 0 ||
+               input.rfind(L"https://", 0) == 0 ||
+               input.rfind(L"file://", 0) == 0 ||
+               input.rfind(L"about:", 0) == 0) {
+        navUrl = input;
+    } else if (input.find(L'.') != std::wstring::npos && input.find(L' ') == std::wstring::npos) {
+        navUrl = L"https://" + input;
+    } else {
+        navUrl = L"https://www.google.com/search?q=" + input;
+    }
+
     url_ = navUrl;
     if (InternalPages::IsInternalUrl(navUrl)) {
         if (webview_) {
@@ -418,6 +440,7 @@ void Tab::Stop() {
 }
 
 void Tab::Resize(const RECT& bounds) {
+    currentBounds_ = bounds;
     if (controller_) {
         controller_->put_Bounds(bounds);
     }

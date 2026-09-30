@@ -86,6 +86,7 @@ private:
 
     int blockedAdsCount_ = 0;
     int blockedTrackersCount_ = 0;
+    RECT currentBounds_{};
 
     std::wstring url_ = L"lite://newtab";
     std::wstring originalUrl_ = L"";

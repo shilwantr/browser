@@ -68,8 +68,11 @@ std::shared_ptr<Tab> TabManager::CreateTab(const std::wstring& initialUrl, bool 
     tabs_.push_back(tab);
     int newIndex = (int)tabs_.size() - 1;
 
+    tab->Resize(currentBounds_);
     tab->AttachWebView(sharedEnv_.Get(), [this, tab, initialUrl, newIndex](bool success) {
         if (success) {
+            tab->Resize(currentBounds_);
+            tab->SetVisible(true);
             tab->Navigate(initialUrl);
             SelectTab(newIndex);
         }

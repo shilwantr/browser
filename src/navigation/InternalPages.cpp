@@ -28,46 +28,71 @@ std::wstring InternalPages::GetNewTabHtml() {
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>New Tab</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  background: #18181a; color: #f0f2f5;
-  font-family: 'Segoe UI Variable Text', -apple-system, sans-serif;
+  background: #141416; color: #f0f2f5;
+  font-family: 'Segoe UI Variable Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  min-height: 100vh; padding: 20px;
+  min-height: 100vh; padding: 32px 24px;
 }
-.brand { font-size: 32px; font-weight: 300; letter-spacing: 6px; margin-bottom: 36px; color: #ffffff; }
+.brand-container { text-align: center; margin-bottom: 36px; }
+.brand {
+  font-size: 34px; font-weight: 350; letter-spacing: 8px; color: #ffffff;
+  text-transform: uppercase;
+}
+.tagline {
+  font-size: 13px; color: #8a8d93; margin-top: 6px; letter-spacing: 0.5px;
+}
 .search-box {
-  width: 100%; max-width: 580px; position: relative; margin-bottom: 48px;
+  width: 100%; max-width: 620px; position: relative; margin-bottom: 48px;
 }
 .search-input {
-  width: 100%; padding: 14px 20px; font-size: 15px; border-radius: 8px;
-  background: #242426; border: 1px solid #36393f; color: #ffffff;
-  outline: none; transition: border-color 0.15s ease;
+  width: 100%; padding: 15px 22px 15px 44px; font-size: 15px; border-radius: 24px;
+  background: #1e1f23; border: 1px solid #32353b; color: #ffffff;
+  outline: none; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
-.search-input:focus { border-color: #666; }
+.search-input:focus {
+  border-color: #5d6169;
+  background: #23252a;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.search-icon {
+  position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+  color: #72767e; font-size: 15px; pointer-events: none;
+}
 .section-title {
-  width: 100%; max-width: 580px; font-size: 12px; text-transform: uppercase;
-  letter-spacing: 1px; color: #888; margin-bottom: 12px;
+  width: 100%; max-width: 620px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1.5px; color: #8e929a; margin-bottom: 12px; font-weight: 600;
 }
 .grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
-  width: 100%; max-width: 580px; margin-bottom: 36px;
+  width: 100%; max-width: 620px; margin-bottom: 36px;
 }
 .tile {
-  background: #202124; border: 1px solid #303236; border-radius: 6px;
-  padding: 14px; text-align: center; text-decoration: none; color: #e0e0e0;
+  background: #1c1d20; border: 1px solid #2d2f34; border-radius: 8px;
+  padding: 14px 12px; text-align: center; text-decoration: none; color: #d6d9e0;
   cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; transition: background 0.15s ease;
+  font-size: 13px; font-weight: 450; transition: all 0.15s ease;
+  user-select: none;
 }
-.tile:hover { background: #2c2d30; }
+.tile:hover {
+  background: #26282e; border-color: #42464e; color: #ffffff;
+  transform: translateY(-1px);
+}
 </style>
 </head>
 <body>
-<div class="brand">LITE</div>
+<div class="brand-container">
+  <div class="brand">LITE</div>
+  <div class="tagline">The web without the garbage</div>
+</div>
 <div class="search-box">
-  <input class="search-input" id="search" placeholder="Search or enter address" autofocus />
+  <span class="search-icon">&#128269;</span>
+  <input class="search-input" id="search" placeholder="Search with Google or enter address..." autofocus spellcheck="false" autocomplete="off" />
 </div>
 )raw";
 
@@ -92,9 +117,10 @@ body {
 
     ss << LR"raw(
 <script>
-document.getElementById('search').addEventListener('keydown', (e) => {
+const input = document.getElementById('search');
+input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    const val = e.target.value.trim();
+    const val = input.value.trim();
     if (val) window.chrome.webview.postMessage('navigate:' + val);
   }
 });

@@ -30,7 +30,7 @@ private:
     void OnMButtonDown(int x, int y);
     void OnMouseMove(int x, int y);
     void OnCommand(int id);
-    void HandleShortcut(WPARAM key, bool ctrl, bool shift, bool alt);
+    bool HandleShortcut(WPARAM key, bool ctrl, bool shift, bool alt);
 
     void UpdateLayout();
     void UpdateControlsState();
